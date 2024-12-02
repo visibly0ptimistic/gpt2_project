@@ -39,16 +39,18 @@ class TestConfiguration(unittest.TestCase):
         """Test initialization with custom values."""
         custom_model_config = ModelConfig(
             vocab_size=1000,
-            hidden_size=256,
-            num_layers=4
+            hidden_size=768,  # Must be divisible by num_heads (12)
+            num_layers=4,
+            num_heads=12
         )
         
         config = ProjectConfig(model=custom_model_config)
         
         # Check if custom values are set
         self.assertEqual(config.model.vocab_size, 1000)
-        self.assertEqual(config.model.hidden_size, 256)
+        self.assertEqual(config.model.hidden_size, 768)
         self.assertEqual(config.model.num_layers, 4)
+        self.assertEqual(config.model.num_heads, 12)
         
         # Check if other configs use defaults
         self.assertEqual(

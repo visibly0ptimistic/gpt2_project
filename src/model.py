@@ -29,8 +29,8 @@ class NewGELU(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return 0.5 * x * (1.0 + torch.tanh(math.sqrt(2.0 / math.pi) * (x + 0.044715 * torch.pow(x, 3.0))))
 
-class FlashAttention(nn.Module):
-    """Efficient attention implementation using flash attention algorithm."""
+class MultiHeadAttention(nn.Module):
+    """Efficient attention implementation using MultiHeadAttention algorithm."""
     
     def __init__(self, config: GPT2Config):
         super().__init__()
@@ -65,7 +65,7 @@ class FlashAttention(nn.Module):
         k = k.view(batch_size, seq_length, self.num_heads, self.head_size).transpose(1, 2)
         v = v.view(batch_size, seq_length, self.num_heads, self.head_size).transpose(1, 2)
         
-        # Attention scores with flash attention optimization
+        # Attention scores with MultiHeadAttention optimization
         attention_scores = torch.matmul(q, k.transpose(-2, -1)) * self.scale
         
         if attention_mask is not None:
@@ -96,7 +96,7 @@ class TransformerBlock(nn.Module):
     
     def __init__(self, config: GPT2Config):
         super().__init__()
-        self.attention = FlashAttention(config)
+        self.attention = MultiHeadAttention(config)
         self.ln1 = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_epsilon)
         self.ln2 = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_epsilon)
         

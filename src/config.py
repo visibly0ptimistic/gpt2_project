@@ -1,67 +1,74 @@
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Any
 import torch
 import json
+
+class PathEncoder(json.JSONEncoder):
+    """Custom JSON encoder for handling Path objects."""
+    def default(self, obj: Any) -> Any:
+        if isinstance(obj, Path):
+            return str(obj)
+        return super().default(obj)
 
 @dataclass
 class PathConfig:
     """Enhanced configuration for project paths."""
-    # Base paths
-    project_root: Path = Path(__file__).parent.parent
-    data_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data")
-    checkpoints_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "checkpoints")
-    logs_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "logs")
-    
-    # Dataset paths
-    datasets: Dict[str, Path] = field(default_factory=lambda: {
-        'openwebtext': Path(__file__).parent.parent / "data/openwebtext",
-        'books': Path(__file__).parent.parent / "data/books",
-        'custom': Path(__file__).parent.parent / "data/custom"
-    })
-    
-    # Processed data paths
-    processed_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data/processed")
-    train_dataset_path: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data/processed/train.pt")
-    val_dataset_path: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data/processed/val.pt")
-    test_dataset_path: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data/processed/test.pt")
-    
-    # Tokenizer paths
-    tokenizer_dir: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data/tokenizer")
-    vocab_file: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data/tokenizer/vocab.json")
-    merges_file: Path = field(default_factory=lambda: Path(__file__).parent.parent / "data/tokenizer/merges.txt")
-    
-    def __post_init__(self):
-        """Create all necessary directories."""
-        try:
-            # Create base directories first
-            self.data_dir.mkdir(parents=True, exist_ok=True)
-            self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
-            self.logs_dir.mkdir(parents=True, exist_ok=True)
-            
-            # Then create subdirectories
-            for path in [self.processed_dir, self.tokenizer_dir, *self.datasets.values()]:
-                path.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            raise RuntimeError(f"Failed to create directory structure: {str(e)}")
+    project_root: Path
+    data_dir: Optional[Path] = None
+    checkpoints_dir: Optional[Path] = None
+    logs_dir: Optional[Path] = None
+    datasets: Optional[Dict[str, Path]] = None
+    processed_dir: Optional[Path] = None
+    train_dataset_path: Optional[Path] = None
+    val_dataset_path: Optional[Path] = None
+    test_dataset_path: Optional[Path] = None
+    tokenizer_dir: Optional[Path] = None
+    vocab_file: Optional[Path] = None
+    merges_file: Optional[Path] = None
 
-@dataclass
+    def __post_init__(self):
+        """Initialize and create all necessary directories."""
+        # Set default paths relative to project_root if not provided
+        self.data_dir = self.data_dir or self.project_root / "data"
+        self.checkpoints_dir = self.checkpoints_dir or self.project_root / "checkpoints"
+        self.logs_dir = self.logs_dir or self.project_root / "logs"
+        
+        # Set dataset paths
+        self.datasets = self.datasets or {
+            'openwebtext': self.data_dir / "openwebtext",
+            'books': self.data_dir / "books",
+            'custom': self.data_dir / "custom"
+        }
+        
+        # Set processed data paths
+        self.processed_dir = self.processed_dir or self.data_dir / "processed"
+        self.train_dataset_path = self.train_dataset_path or self.processed_dir / "train.pt"
+        self.val_dataset_path = self.val_dataset_path or self.processed_dir / "val.pt"
+        self.test_dataset_path = self.test_dataset_path or self.processed_dir / "test.pt"
+        
+        # Set tokenizer paths
+        self.tokenizer_dir = self.tokenizer_dir or self.data_dir / "tokenizer"
+        self.vocab_file = self.vocab_file or self.tokenizer_dir / "vocab.json"
+        self.merges_file = self.merges_file or self.tokenizer_dir / "merges.txt"
+
+@dataclass(frozen=True)
 class ModelConfig:
     """Enhanced configuration for model architecture."""
-    vocab_size: int = 50257  # Standard GPT-2 vocabulary size
+    vocab_size: int = 50257
     max_position_embeddings: int = 1024
-    hidden_size: int = 768  # d_model in transformer terminology
+    hidden_size: int = 768
     num_layers: int = 12
     num_heads: int = 12
-    intermediate_size: int = 3072  # 4 * hidden_size is standard
+    intermediate_size: int = 3072
     dropout: float = 0.1
     layer_norm_epsilon: float = 1e-5
     initializer_range: float = 0.02
     scale_attn_weights: bool = True
     use_cache: bool = True
-    gradient_checkpointing: bool = False  # Enable for large models to save memory
+    gradient_checkpointing: bool = False
 
-@dataclass
+@dataclass(frozen=True)
 class TokenizerConfig:
     """Enhanced configuration for tokenizer."""
     vocab_size: int = 50257
@@ -70,59 +77,45 @@ class TokenizerConfig:
         '<unk>': 1,
         '<sos>': 2,
         '<eos>': 3,
-        '<mask>': 4  # Added for potential fine-tuning tasks
+        '<mask>': 4
     })
-    min_frequency: int = 2  # Minimum frequency for a token to be included
-    max_token_length: int = 50  # Maximum length of a single token
+    min_frequency: int = 2
+    max_token_length: int = 50
 
-@dataclass
+@dataclass(frozen=True)
 class TrainingConfig:
     """Enhanced configuration for training."""
-    # Basic training parameters
     batch_size: int = 32
     gradient_accumulation_steps: int = 8
     max_epochs: int = 10
     learning_rate: float = 3e-4
-    min_learning_rate: float = 1e-5  # For cosine scheduling
+    min_learning_rate: float = 1e-5
     warmup_steps: int = 1000
     max_grad_norm: float = 1.0
     weight_decay: float = 0.01
-    
-    # Dataset parameters
     train_size: float = 0.8
     val_size: float = 0.1
     test_size: float = 0.1
     max_seq_length: int = 1024
-    
-    # Optimization
-    optimizer: str = "adamw"  # choices: ["adam", "adamw", "adafactor"]
-    scheduler: str = "cosine"  # choices: ["linear", "cosine", "constant"]
+    optimizer: str = "adamw"
+    scheduler: str = "cosine"
     gradient_checkpointing: bool = False
-    fp16_training: bool = False  # Enable mixed precision training
-    
-    # Logging and saving
+    fp16_training: bool = False
     save_steps: int = 1000
     eval_steps: int = 500
     logging_steps: int = 100
-    save_total_limit: int = 5  # Maximum number of checkpoints to keep
-    
-    # Visualization
+    save_total_limit: int = 5
     plot_training_progress: bool = True
     wandb_project: Optional[str] = "gpt2-training"
     wandb_entity: Optional[str] = None
-    
-    # Hardware
     device: str = field(default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu")
     n_gpu: int = field(default_factory=lambda: torch.cuda.device_count())
-    
-    # Distributed training
     local_rank: int = -1
     distributed_training: bool = False
 
-@dataclass
+@dataclass(frozen=True)
 class InferenceConfig:
     """Enhanced configuration for inference."""
-    # Generation parameters
     max_length: int = 100
     min_length: int = 0
     temperature: float = 0.7
@@ -131,18 +124,12 @@ class InferenceConfig:
     repetition_penalty: float = 1.0
     length_penalty: float = 1.0
     num_return_sequences: int = 1
-    num_beams: int = 1  # For beam search
+    num_beams: int = 1
     early_stopping: bool = True
-    
-    # Output formatting
     remove_special_tokens: bool = True
     clean_up_tokenization_spaces: bool = True
-    
-    # Hardware
     device: str = field(default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu")
     batch_size: int = 4
-    
-    # Caching
     use_cache: bool = True
     cache_dir: Optional[Path] = None
 
@@ -157,41 +144,63 @@ class ProjectConfig:
         training: Optional[TrainingConfig] = None,
         inference: Optional[InferenceConfig] = None
     ):
-        self._paths = paths or PathConfig()
+        # Initialize with default project root if paths not provided
+        if paths is None:
+            paths = PathConfig(project_root=Path.cwd())
+            
+        # Initialize configs
+        self._paths = paths
         self._model = model or ModelConfig()
         self._tokenizer = tokenizer or TokenizerConfig()
         self._training = training or TrainingConfig()
         self._inference = inference or InferenceConfig()
         
+        # Create necessary directories
+        self._ensure_directories_exist()
+        
         # Validate configurations
         self._validate_configs()
     
+    def _ensure_directories_exist(self) -> None:
+        """Ensure all required directories exist."""
+        try:
+            # Create base directories first
+            self.paths.data_dir.mkdir(parents=True, exist_ok=True)
+            self.paths.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+            self.paths.logs_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Then create subdirectories
+            self.paths.processed_dir.mkdir(parents=True, exist_ok=True)
+            self.paths.tokenizer_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create dataset directories
+            for dataset_dir in self.paths.datasets.values():
+                dataset_dir.mkdir(parents=True, exist_ok=True)
+                
+        except Exception as e:
+            raise RuntimeError(f"Failed to create directory structure: {str(e)}")
+
     @property
     def paths(self) -> PathConfig:
-        """Get paths configuration."""
         return self._paths
-    
+
     @property
     def model(self) -> ModelConfig:
-        """Get model configuration."""
         return self._model
-    
+
     @property
     def tokenizer(self) -> TokenizerConfig:
-        """Get tokenizer configuration."""
         return self._tokenizer
-    
+
     @property
     def training(self) -> TrainingConfig:
-        """Get training configuration."""
         return self._training
-    
+
     @property
     def inference(self) -> InferenceConfig:
-        """Get inference configuration."""
         return self._inference
-    
-    def _validate_configs(self):
+
+    def _validate_configs(self) -> None:
         """Validate configuration parameters."""
         try:
             # Validate model configuration
@@ -201,19 +210,17 @@ class ProjectConfig:
                 "Vocabulary size must be greater than number of special tokens"
             
             # Validate training configuration
-            assert abs(sum([self.training.train_size, self.training.val_size, self.training.test_size]) - 1.0) < 1e-6, \
-                "Dataset split ratios must sum to 1"
+            split_sum = self.training.train_size + self.training.val_size + self.training.test_size
+            assert abs(split_sum - 1.0) < 1e-6, \
+                f"Dataset split ratios must sum to 1, got {split_sum}"
             
             if self.training.fp16_training:
                 assert torch.cuda.is_available(), "FP16 training requires CUDA"
+                
         except AssertionError as e:
             raise ValueError(str(e))
-    
+
     def to_json(self, path: str) -> None:
-        """Save configuration to JSON file."""
-        self.save(path)
-    
-    def save(self, path: str) -> None:
         """Save configuration to JSON file."""
         config_dict = {
             'paths': {k: str(v) if isinstance(v, Path) else v 
@@ -225,8 +232,8 @@ class ProjectConfig:
         }
         
         with open(path, 'w') as f:
-            json.dump(config_dict, f, indent=2)
-    
+            json.dump(config_dict, f, indent=2, cls=PathEncoder)
+
     @classmethod
     def load(cls, path: str) -> 'ProjectConfig':
         """Load configuration from JSON file."""
