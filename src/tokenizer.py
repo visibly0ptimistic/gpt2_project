@@ -145,17 +145,34 @@ class BPETokenizer:
         Returns:
             Decoded text
         """
-        # Convert IDs to tokens
-        tokens = [self.id2token.get(id, '<unk>') for id in token_ids]
+        # Convert IDs to tokens and filter special tokens
+        tokens = []
+        current_word = []
+
+        for id in token_ids:
+            token = self.id2token.get(id, '<unk>')
+            
+            # Skip special tokens
+            if token in self.special_tokens:
+                continue
+                
+            # Handle word endings
+            if token.endswith('</w>'):
+                # Add token without </w> to current word
+                current_word.append(token[:-4])
+                # Add completed word to tokens
+                tokens.append(''.join(current_word))
+                current_word = []
+            else:
+                current_word.append(token)
         
-        # Remove special tokens
-        tokens = [token for token in tokens 
-                 if token not in self.special_tokens.keys()]
+        # Handle any remaining tokens in current_word
+        if current_word:
+            tokens.append(''.join(current_word))
         
-        # Join tokens and clean up
+        # Join words and clean up whitespace
         text = ' '.join(tokens)
-        text = text.replace(' </w>', '')  # Remove end-of-word markers
-        text = re.sub(r'\s+', ' ', text)  # Clean up whitespace
+        text = re.sub(r'\s+', ' ', text)
         
         return text.strip()
 

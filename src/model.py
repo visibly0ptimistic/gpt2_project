@@ -1,10 +1,12 @@
 import math
+import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from dataclasses import dataclass
-from typing import Optional, Tuple, List
+from typing import Optional, Tuple, List, Dict
 import numpy as np
+from pathlib import Path
 
 @dataclass
 class GPT2Config:
@@ -53,7 +55,7 @@ class MultiHeadAttention(nn.Module):
         attention_mask: Optional[torch.Tensor] = None,
         head_mask: Optional[torch.Tensor] = None,
         output_attentions: bool = False,
-    ) -> Tuple[torch.Tensor, Optional[torch.Tensor]]:
+    ) -> torch.Tensor:
         batch_size, seq_length, _ = hidden_states.size()
         
         # QKV transform
@@ -85,11 +87,7 @@ class MultiHeadAttention(nn.Module):
         output = self.out_proj(context)
         output = self.resid_dropout(output)
         
-        outputs = (output,)
-        if output_attentions:
-            outputs += (attention_probs,)
-        
-        return outputs
+        return output
 
 class TransformerBlock(nn.Module):
     """Enhanced GPT-2 Transformer block with improved efficiency."""
@@ -121,7 +119,7 @@ class TransformerBlock(nn.Module):
         
         # Attention block with optional gradient checkpointing
         if self.gradient_checkpointing and self.training:
-            attention_outputs = torch.utils.checkpoint.checkpoint(
+            attention_output = torch.utils.checkpoint.checkpoint(
                 self.attention,
                 hidden_states,
                 attention_mask,
@@ -129,14 +127,14 @@ class TransformerBlock(nn.Module):
                 output_attentions,
             )
         else:
-            attention_outputs = self.attention(
+            attention_output = self.attention(
                 hidden_states,
                 attention_mask=attention_mask,
                 head_mask=head_mask,
                 output_attentions=output_attentions,
             )
         
-        hidden_states = residual + attention_outputs[0]
+        hidden_states = residual + attention_output
         
         # MLP block with optional gradient checkpointing
         residual = hidden_states
@@ -152,11 +150,7 @@ class TransformerBlock(nn.Module):
         
         hidden_states = residual + hidden_states
         
-        outputs = (hidden_states,)
-        if output_attentions:
-            outputs += attention_outputs[1:]
-        
-        return outputs
+        return hidden_states
 
 class GPT2(nn.Module):
     """Enhanced GPT-2 model with improved training and inference capabilities."""
@@ -165,10 +159,8 @@ class GPT2(nn.Module):
         super().__init__()
         self.config = config
         
-        self.embeddings = nn.ModuleDict({
-            'tokens': nn.Embedding(config.vocab_size, config.hidden_size),
-            'positions': nn.Embedding(config.max_position_embeddings, config.hidden_size)
-        })
+        self.token_embeddings = nn.Embedding(config.vocab_size, config.hidden_size)
+        self.position_embeddings = nn.Embedding(config.max_position_embeddings, config.hidden_size)
         
         self.drop = nn.Dropout(config.dropout)
         
@@ -177,6 +169,10 @@ class GPT2(nn.Module):
         ])
         
         self.ln_f = nn.LayerNorm(config.hidden_size, eps=config.layer_norm_epsilon)
+        self.head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        
+        # Tie weights between input embeddings and output layer
+        self.head.weight = self.token_embeddings.weight
         
         # Initialize weights
         self.apply(self._init_weights)
@@ -194,11 +190,11 @@ class GPT2(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=self.config.initializer_range)
 
-    def get_input_embeddings(self) -> nn.Embedding:
-        return self.embeddings['tokens']
-
-    def set_input_embeddings(self, new_embeddings: nn.Embedding) -> None:
-        self.embeddings['tokens'] = new_embeddings
+    def get_position_ids(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """Get position IDs for input sequence."""
+        seq_length = input_ids.size(1)
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
+        return position_ids.unsqueeze(0).expand_as(input_ids)
 
     def forward(
         self,
@@ -208,12 +204,11 @@ class GPT2(nn.Module):
         head_mask: Optional[torch.Tensor] = None,
         output_attentions: bool = False,
         output_hidden_states: bool = False,
-    ) -> Tuple[torch.Tensor, ...]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         batch_size, seq_length = input_ids.size()
         
         if position_ids is None:
-            position_ids = torch.arange(seq_length, dtype=torch.long, device=input_ids.device)
-            position_ids = position_ids.unsqueeze(0).expand_as(input_ids)
+            position_ids = self.get_position_ids(input_ids)
         
         if attention_mask is not None:
             attention_mask = attention_mask.unsqueeze(1).unsqueeze(2)
@@ -221,96 +216,102 @@ class GPT2(nn.Module):
             attention_mask = (1.0 - attention_mask) * -10000.0
         
         # Get embeddings
-        inputs_embeds = self.embeddings['tokens'](input_ids)
-        position_embeds = self.embeddings['positions'](position_ids)
+        inputs_embeds = self.token_embeddings(input_ids)
+        position_embeds = self.position_embeddings(position_ids)
         hidden_states = inputs_embeds + position_embeds
         hidden_states = self.drop(hidden_states)
         
-        all_hidden_states = () if output_hidden_states else None
-        all_attentions = () if output_attentions else None
-        
-        # Generate head masks if needed
-        if head_mask is not None:
-            head_mask = self._prepare_head_mask(head_mask, self.config.num_layers)
-        else:
-            head_mask = [None] * self.config.num_layers
-        
         # Process through transformer blocks
-        for i, block in enumerate(self.blocks):
-            if output_hidden_states:
-                all_hidden_states += (hidden_states,)
-            
-            layer_outputs = block(
+        for block in self.blocks:
+            hidden_states = block(
                 hidden_states,
                 attention_mask=attention_mask,
-                head_mask=head_mask[i],
+                head_mask=head_mask,
                 output_attentions=output_attentions,
             )
-            
-            hidden_states = layer_outputs[0]
-            
-            if output_attentions:
-                all_attentions += (layer_outputs[1],)
         
         hidden_states = self.ln_f(hidden_states)
         
-        if output_hidden_states:
-            all_hidden_states += (hidden_states,)
+        # Get logits
+        logits = self.head(hidden_states)
         
-        # Prepare outputs
-        outputs = (hidden_states,)
-        if output_hidden_states:
-            outputs += (all_hidden_states,)
-        if output_attentions:
-            outputs += (all_attentions,)
-        
-        return outputs
+        return logits, hidden_states
 
-    def _prepare_head_mask(
-        self,
-        head_mask: torch.Tensor,
-        num_layers: int,
-        attention_heads: Optional[int] = None
-    ) -> List[Optional[torch.Tensor]]:
-        if head_mask is not None:
-            head_mask = self._convert_head_mask_to_5d(head_mask, num_layers)
-            if attention_heads is not None:
-                head_mask = head_mask.expand(-1, -1, attention_heads, -1, -1)
-        else:
-            head_mask = [None] * num_layers
-        return head_mask
-
-    @staticmethod
-    def _convert_head_mask_to_5d(head_mask: torch.Tensor, num_layers: int) -> torch.Tensor:
-        if head_mask.dim() == 1:
-            head_mask = head_mask.unsqueeze(0).unsqueeze(0).unsqueeze(-1).unsqueeze(-1)
-            head_mask = head_mask.expand(num_layers, -1, -1, -1, -1)
-        elif head_mask.dim() == 2:
-            head_mask = head_mask.unsqueeze(1).unsqueeze(-1).unsqueeze(-1)
-        return head_mask
-
-    def prepare_inputs_for_generation(
+    def generate(
         self,
         input_ids: torch.Tensor,
-        past: Optional[List[Tuple[torch.Tensor]]] = None,
-        attention_mask: Optional[torch.Tensor] = None,
-        **kwargs
-    ) -> dict:
-        # only last token for input_ids if past is not None
-        if past is not None:
-            input_ids = input_ids[:, -1].unsqueeze(-1)
-            
-        return {
-            "input_ids": input_ids,
-            "past_key_values": past,
-            "attention_mask": attention_mask,
-        }
+        max_length: int,
+        temperature: float = 1.0,
+        top_k: Optional[int] = None,
+        top_p: Optional[float] = None,
+    ) -> torch.Tensor:
+        """Generate text continuation."""
+        self.eval()
+        batch_size = input_ids.size(0)
+        cur_len = input_ids.size(1)
+        
+        with torch.no_grad():
+            while cur_len < max_length:
+                # Forward pass
+                outputs = self.forward(input_ids)
+                logits = outputs[0]
+                next_token_logits = logits[:, -1, :] / temperature
+                
+                # Apply top-k filtering
+                if top_k is not None:
+                    indices_to_remove = next_token_logits < torch.topk(next_token_logits, top_k)[0][..., -1, None]
+                    next_token_logits[indices_to_remove] = float('-inf')
+                
+                # Apply top-p (nucleus) filtering
+                if top_p is not None:
+                    sorted_logits, sorted_indices = torch.sort(next_token_logits, descending=True)
+                    cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+                    sorted_indices_to_remove = cumulative_probs > top_p
+                    sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                    sorted_indices_to_remove[..., 0] = 0
+                    indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+                    next_token_logits[indices_to_remove] = float('-inf')
+                
+                # Sample next token
+                probs = F.softmax(next_token_logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+                
+                # Append token
+                input_ids = torch.cat((input_ids, next_token), dim=1)
+                cur_len = input_ids.size(1)
+                
+        return input_ids
 
-    @staticmethod
-    def _reorder_cache(
-        past: Tuple[Tuple[torch.Tensor]], beam_idx: torch.Tensor
-    ) -> Tuple[Tuple[torch.Tensor]]:
-        return tuple(
-            tuple(past_state.index_select(0, beam_idx) for past_state in layer_past)
-            for layer_past in past
-        )
+    def save_pretrained(self, save_dir: str) -> None:
+        """Save model and configuration."""
+        save_dir = Path(save_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save configuration
+        config_path = save_dir / 'config.json'
+        with open(config_path, 'w') as f:
+            json.dump(vars(self.config), f, indent=4)
+        
+        # Save model weights
+        model_path = save_dir / 'pytorch_model.bin'
+        torch.save(self.state_dict(), model_path)
+
+    @classmethod
+    def from_pretrained(cls, model_dir: str) -> 'GPT2':
+        """Load model from pretrained directory."""
+        model_dir = Path(model_dir)
+        
+        # Load configuration
+        config_path = model_dir / 'config.json'
+        with open(config_path, 'r') as f:
+            config_dict = json.load(f)
+        config = GPT2Config(**config_dict)
+        
+        # Initialize model
+        model = cls(config)
+        
+        # Load weights
+        model_path = model_dir / 'pytorch_model.bin'
+        model.load_state_dict(torch.load(model_path))
+        
+        return model

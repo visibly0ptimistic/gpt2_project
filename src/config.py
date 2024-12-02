@@ -52,7 +52,7 @@ class PathConfig:
         self.vocab_file = self.vocab_file or self.tokenizer_dir / "vocab.json"
         self.merges_file = self.merges_file or self.tokenizer_dir / "merges.txt"
 
-@dataclass(frozen=True)
+@dataclass
 class ModelConfig:
     """Enhanced configuration for model architecture."""
     vocab_size: int = 50257
@@ -68,7 +68,7 @@ class ModelConfig:
     use_cache: bool = True
     gradient_checkpointing: bool = False
 
-@dataclass(frozen=True)
+@dataclass
 class TokenizerConfig:
     """Enhanced configuration for tokenizer."""
     vocab_size: int = 50257
@@ -82,7 +82,7 @@ class TokenizerConfig:
     min_frequency: int = 2
     max_token_length: int = 50
 
-@dataclass(frozen=True)
+@dataclass
 class TrainingConfig:
     """Enhanced configuration for training."""
     batch_size: int = 32
@@ -113,7 +113,7 @@ class TrainingConfig:
     local_rank: int = -1
     distributed_training: bool = False
 
-@dataclass(frozen=True)
+@dataclass
 class InferenceConfig:
     """Enhanced configuration for inference."""
     max_length: int = 100
@@ -165,16 +165,16 @@ class ProjectConfig:
         """Ensure all required directories exist."""
         try:
             # Create base directories first
-            self.paths.data_dir.mkdir(parents=True, exist_ok=True)
-            self.paths.checkpoints_dir.mkdir(parents=True, exist_ok=True)
-            self.paths.logs_dir.mkdir(parents=True, exist_ok=True)
+            self._paths.data_dir.mkdir(parents=True, exist_ok=True)
+            self._paths.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+            self._paths.logs_dir.mkdir(parents=True, exist_ok=True)
             
             # Then create subdirectories
-            self.paths.processed_dir.mkdir(parents=True, exist_ok=True)
-            self.paths.tokenizer_dir.mkdir(parents=True, exist_ok=True)
+            self._paths.processed_dir.mkdir(parents=True, exist_ok=True)
+            self._paths.tokenizer_dir.mkdir(parents=True, exist_ok=True)
             
             # Create dataset directories
-            for dataset_dir in self.paths.datasets.values():
+            for dataset_dir in self._paths.datasets.values():
                 dataset_dir.mkdir(parents=True, exist_ok=True)
                 
         except Exception as e:
@@ -184,22 +184,52 @@ class ProjectConfig:
     def paths(self) -> PathConfig:
         return self._paths
 
+    @paths.setter
+    def paths(self, value: PathConfig) -> None:
+        self._ensure_path_config(value)
+        self._paths = value
+
     @property
     def model(self) -> ModelConfig:
         return self._model
+
+    @model.setter
+    def model(self, value: ModelConfig) -> None:
+        self._model = value
+        self._validate_configs()
 
     @property
     def tokenizer(self) -> TokenizerConfig:
         return self._tokenizer
 
+    @tokenizer.setter
+    def tokenizer(self, value: TokenizerConfig) -> None:
+        self._tokenizer = value
+        self._validate_configs()
+
     @property
     def training(self) -> TrainingConfig:
         return self._training
+
+    @training.setter
+    def training(self, value: TrainingConfig) -> None:
+        self._training = value
+        self._validate_configs()
 
     @property
     def inference(self) -> InferenceConfig:
         return self._inference
 
+    @inference.setter
+    def inference(self, value: InferenceConfig) -> None:
+        self._inference = value
+
+    def _ensure_path_config(self, paths: PathConfig) -> None:
+        """Ensure path configuration is valid and create necessary directories."""
+        if not isinstance(paths, PathConfig):
+            raise ValueError("paths must be an instance of PathConfig")
+        paths.__post_init__()  # Initialize paths
+        
     def _validate_configs(self) -> None:
         """Validate configuration parameters."""
         try:
