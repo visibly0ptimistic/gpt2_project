@@ -180,13 +180,8 @@ class ProjectConfig:
         except Exception as e:
             raise RuntimeError(f"Failed to create directory structure: {str(e)}")
 
-    @property
     def paths(self) -> PathConfig:
         return self._paths
-
-    @paths.setter
-    def paths(self, value: PathConfig) -> None:
-        raise AttributeError("Cannot modify paths after initialization")
 
     @property
     def model(self) -> ModelConfig:
@@ -263,16 +258,23 @@ class ProjectConfig:
         with open(path, 'r') as f:
             config_dict = json.load(f)
         
-        # Convert path strings back to Path objects
-        paths_dict = {k: Path(v) if isinstance(v, str) else v 
-                     for k, v in config_dict['paths'].items()}
-        
+        # Convert path strings back to Path objects in paths AND datasets
+        paths_dict = config_dict.get('paths', {})
+        converted_paths = {}
+        for k, v in paths_dict.items():
+            if isinstance(v, dict): # Handle the 'datasets' dictionary
+                converted_paths[k] = {k2: Path(v2) for k2, v2 in v.items()}
+            elif isinstance(v, str):
+                converted_paths[k] = Path(v)
+            else:
+                converted_paths[k] = v
+
         return cls(
-            paths=PathConfig(**paths_dict),
-            model=ModelConfig(**config_dict['model']),
-            tokenizer=TokenizerConfig(**config_dict['tokenizer']),
-            training=TrainingConfig(**config_dict['training']),
-            inference=InferenceConfig(**config_dict['inference'])
+            paths=PathConfig(**converted_paths),
+            model=ModelConfig(**config_dict.get('model', {})), # Use .get with default for robustness
+            tokenizer=TokenizerConfig(**config_dict.get('tokenizer', {})),
+            training=TrainingConfig(**config_dict.get('training', {})),
+            inference=InferenceConfig(**config_dict.get('inference', {}))
         )
 
     @classmethod
