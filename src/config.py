@@ -186,8 +186,7 @@ class ProjectConfig:
 
     @paths.setter
     def paths(self, value: PathConfig) -> None:
-        self._ensure_path_config(value)
-        self._paths = value
+        raise AttributeError("Cannot modify paths after initialization")
 
     @property
     def model(self) -> ModelConfig:
@@ -224,12 +223,6 @@ class ProjectConfig:
     def inference(self, value: InferenceConfig) -> None:
         self._inference = value
 
-    def _ensure_path_config(self, paths: PathConfig) -> None:
-        """Ensure path configuration is valid and create necessary directories."""
-        if not isinstance(paths, PathConfig):
-            raise ValueError("paths must be an instance of PathConfig")
-        paths.__post_init__()  # Initialize paths
-        
     def _validate_configs(self) -> None:
         """Validate configuration parameters."""
         try:
@@ -265,7 +258,7 @@ class ProjectConfig:
             json.dump(config_dict, f, indent=2, cls=PathEncoder)
 
     @classmethod
-    def load(cls, path: str) -> 'ProjectConfig':
+    def from_json(cls, path: str) -> 'ProjectConfig':
         """Load configuration from JSON file."""
         with open(path, 'r') as f:
             config_dict = json.load(f)
@@ -281,6 +274,11 @@ class ProjectConfig:
             training=TrainingConfig(**config_dict['training']),
             inference=InferenceConfig(**config_dict['inference'])
         )
+
+    @classmethod
+    def load(cls, path: str) -> 'ProjectConfig':
+        """Alias for from_json for backward compatibility."""
+        return cls.from_json(path)
 
 def get_default_config() -> ProjectConfig:
     """Get default project configuration."""
