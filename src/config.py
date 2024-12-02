@@ -33,9 +33,17 @@ class PathConfig:
     
     def __post_init__(self):
         """Create all necessary directories."""
-        for path in [self.data_dir, self.checkpoints_dir, self.logs_dir, 
-                    self.processed_dir, self.tokenizer_dir, *self.datasets.values()]:
-            path.mkdir(parents=True, exist_ok=True)
+        try:
+            # Create base directories first
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+            self.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+            self.logs_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Then create subdirectories
+            for path in [self.processed_dir, self.tokenizer_dir, *self.datasets.values()]:
+                path.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            raise RuntimeError(f"Failed to create directory structure: {str(e)}")
 
 @dataclass
 class ModelConfig:
@@ -149,29 +157,61 @@ class ProjectConfig:
         training: Optional[TrainingConfig] = None,
         inference: Optional[InferenceConfig] = None
     ):
-        self.paths = paths or PathConfig()
-        self.model = model or ModelConfig()
-        self.tokenizer = tokenizer or TokenizerConfig()
-        self.training = training or TrainingConfig()
-        self.inference = inference or InferenceConfig()
+        self._paths = paths or PathConfig()
+        self._model = model or ModelConfig()
+        self._tokenizer = tokenizer or TokenizerConfig()
+        self._training = training or TrainingConfig()
+        self._inference = inference or InferenceConfig()
         
         # Validate configurations
         self._validate_configs()
     
+    @property
+    def paths(self) -> PathConfig:
+        """Get paths configuration."""
+        return self._paths
+    
+    @property
+    def model(self) -> ModelConfig:
+        """Get model configuration."""
+        return self._model
+    
+    @property
+    def tokenizer(self) -> TokenizerConfig:
+        """Get tokenizer configuration."""
+        return self._tokenizer
+    
+    @property
+    def training(self) -> TrainingConfig:
+        """Get training configuration."""
+        return self._training
+    
+    @property
+    def inference(self) -> InferenceConfig:
+        """Get inference configuration."""
+        return self._inference
+    
     def _validate_configs(self):
         """Validate configuration parameters."""
-        # Validate model configuration
-        assert self.model.hidden_size % self.model.num_heads == 0, \
-            "Hidden size must be divisible by number of attention heads"
-        assert self.model.vocab_size >= len(self.tokenizer.special_tokens), \
-            "Vocabulary size must be greater than number of special tokens"
-        
-        # Validate training configuration
-        assert sum([self.training.train_size, self.training.val_size, self.training.test_size]) == 1.0, \
-            "Dataset split ratios must sum to 1"
-        
-        if self.training.fp16_training:
-            assert torch.cuda.is_available(), "FP16 training requires CUDA"
+        try:
+            # Validate model configuration
+            assert self.model.hidden_size % self.model.num_heads == 0, \
+                f"Hidden size ({self.model.hidden_size}) must be divisible by number of attention heads ({self.model.num_heads})"
+            assert self.model.vocab_size >= len(self.tokenizer.special_tokens), \
+                "Vocabulary size must be greater than number of special tokens"
+            
+            # Validate training configuration
+            assert abs(sum([self.training.train_size, self.training.val_size, self.training.test_size]) - 1.0) < 1e-6, \
+                "Dataset split ratios must sum to 1"
+            
+            if self.training.fp16_training:
+                assert torch.cuda.is_available(), "FP16 training requires CUDA"
+        except AssertionError as e:
+            raise ValueError(str(e))
+    
+    def to_json(self, path: str) -> None:
+        """Save configuration to JSON file."""
+        self.save(path)
     
     def save(self, path: str) -> None:
         """Save configuration to JSON file."""
