@@ -5,12 +5,11 @@ import torch
 import logging
 from pathlib import Path
 import requests
-import tarfile
+import zipfile
 from tqdm import tqdm
 import argparse
 import shutil
 import json
-from typing import Optional
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent
@@ -26,78 +25,47 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class DatasetDownloader:
-    """Handles downloading and preparing the WikiText-103 dataset."""
+    """Handles downloading and preparing datasets."""
     
-    WIKITEXT_URL = "https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-raw-v1.zip"
+    TINY_SHAKESPEARE_URL = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
     
     def __init__(self, config: ProjectConfig):
         self.config = config
-        self.download_dir = self.config.paths.data_dir / "downloads"
         self.raw_dir = self.config.paths.data_dir / "raw"
         self.processed_dir = self.config.paths.data_dir / "processed"
         
         # Create directories
-        self.download_dir.mkdir(parents=True, exist_ok=True)
         self.raw_dir.mkdir(parents=True, exist_ok=True)
         self.processed_dir.mkdir(parents=True, exist_ok=True)
     
-    def download_file(self, url: str, filename: str) -> Path:
-        """Download file with progress bar."""
-        filepath = self.download_dir / filename
+    def download_file(self) -> None:
+        """Download the dataset file."""
+        filepath = self.raw_dir / "shakespeare.txt"
         
         if filepath.exists():
             logger.info(f"File already exists: {filepath}")
             return filepath
         
-        logger.info(f"Downloading {url} to {filepath}")
-        response = requests.get(url, stream=True)
-        total_size = int(response.headers.get('content-length', 0))
+        logger.info(f"Downloading {self.TINY_SHAKESPEARE_URL}")
+        response = requests.get(self.TINY_SHAKESPEARE_URL)
         
-        with open(filepath, 'wb') as file, tqdm(
-            desc=filename,
-            total=total_size,
-            unit='iB',
-            unit_scale=True,
-            unit_divisor=1024,
-        ) as pbar:
-            for data in response.iter_content(chunk_size=1024):
-                size = file.write(data)
-                pbar.update(size)
+        with open(filepath, 'wb') as f:
+            f.write(response.content)
         
+        logger.info(f"Downloaded to {filepath}")
         return filepath
     
-    def extract_archive(self, archive_path: Path) -> None:
-        """Extract zip archive."""
-        logger.info(f"Extracting {archive_path} to {self.raw_dir}")
-        
-        import zipfile
-        with zipfile.ZipFile(archive_path, 'r') as zip_ref:
-            zip_ref.extractall(self.raw_dir)
-    
     def prepare_dataset(self) -> None:
-        """Download and prepare the WikiText-103 dataset."""
+        """Download and prepare the dataset."""
         try:
             # Download dataset
-            filename = "wikitext-103-raw-v1.zip"
-            archive_path = self.download_file(self.WIKITEXT_URL, filename)
-            
-            # Extract archive
-            self.extract_archive(archive_path)
-            
-            # Move files to correct location
-            source_dir = self.raw_dir / "wikitext-103-raw"
-            if source_dir.exists():
-                for file in source_dir.glob("*.raw"):
-                    shutil.move(str(file), str(self.raw_dir / file.name))
-                shutil.rmtree(source_dir)
+            self.download_file()
             
             # Save dataset info
             dataset_info = {
-                'name': 'WikiText-103',
-                'url': self.WIKITEXT_URL,
-                'download_date': str(Path(archive_path).stat().st_mtime),
-                'size': Path(archive_path).stat().st_size,
-                'description': 'WikiText-103 dataset containing Wikipedia articles'
+                'name': 'Tiny Shakespeare',
+                'url': self.TINY_SHAKESPEARE_URL,
+                'description': 'A small Shakespeare dataset for testing'
             }
             
             with open(self.processed_dir / 'dataset_info.json', 'w') as f:
@@ -136,7 +104,6 @@ def main():
     # Clean if requested
     if args.clean:
         logger.info("Cleaning existing dataset files...")
-        shutil.rmtree(config.paths.data_dir / "downloads", ignore_errors=True)
         shutil.rmtree(config.paths.data_dir / "raw", ignore_errors=True)
         shutil.rmtree(config.paths.data_dir / "processed", ignore_errors=True)
     

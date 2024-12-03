@@ -136,17 +136,15 @@ class DataPreprocessor:
         """Train the BPE tokenizer on the text data."""
         logger.info("Training tokenizer...")
         
-        # Initialize tokenizer
-        self.tokenizer = BPETokenizer(
-            vocab_size=self.config.model.vocab_size,
-            min_frequency=2
-        )
+        # Initialize tokenizer with correct parameters
+        self.tokenizer = BPETokenizer(vocab_size=self.config.model.vocab_size)
         
-        # Train tokenizer
-        self.tokenizer.train(texts, verbose=True)
+        # Build vocabulary from texts
+        combined_text = " ".join(texts)
+        self.tokenizer.build_vocab(combined_text)
         
         # Save tokenizer
-        self.tokenizer.save(self.config.paths.tokenizer_dir)
+        self.tokenizer.save(str(self.config.paths.tokenizer_dir))
         logger.info(f"Saved tokenizer to {self.config.paths.tokenizer_dir}")
     
     def _encode_chunk(self, texts: List[str]) -> List[List[int]]:
