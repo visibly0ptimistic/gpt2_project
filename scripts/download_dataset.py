@@ -26,9 +26,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class DatasetDownloader:
-    """Handles downloading and preparing the OpenWebText dataset."""
+    """Handles downloading and preparing the WikiText-103 dataset."""
     
-    OPENWEBTEXT_URL = "https://zenodo.org/record/3834942/files/openwebtext.tar.xz"
+    WIKITEXT_URL = "https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-raw-v1.zip"
     
     def __init__(self, config: ProjectConfig):
         self.config = config
@@ -67,29 +67,37 @@ class DatasetDownloader:
         return filepath
     
     def extract_archive(self, archive_path: Path) -> None:
-        """Extract tar.xz archive."""
+        """Extract zip archive."""
         logger.info(f"Extracting {archive_path} to {self.raw_dir}")
         
-        with tarfile.open(archive_path, 'r:xz') as tar:
-            tar.extractall(path=self.raw_dir)
+        import zipfile
+        with zipfile.ZipFile(archive_path, 'r') as zip_ref:
+            zip_ref.extractall(self.raw_dir)
     
     def prepare_dataset(self) -> None:
-        """Download and prepare the OpenWebText dataset."""
+        """Download and prepare the WikiText-103 dataset."""
         try:
             # Download dataset
-            filename = "openwebtext.tar.xz"
-            archive_path = self.download_file(self.OPENWEBTEXT_URL, filename)
+            filename = "wikitext-103-raw-v1.zip"
+            archive_path = self.download_file(self.WIKITEXT_URL, filename)
             
             # Extract archive
             self.extract_archive(archive_path)
             
+            # Move files to correct location
+            source_dir = self.raw_dir / "wikitext-103-raw"
+            if source_dir.exists():
+                for file in source_dir.glob("*.raw"):
+                    shutil.move(str(file), str(self.raw_dir / file.name))
+                shutil.rmtree(source_dir)
+            
             # Save dataset info
             dataset_info = {
-                'name': 'OpenWebText',
-                'url': self.OPENWEBTEXT_URL,
+                'name': 'WikiText-103',
+                'url': self.WIKITEXT_URL,
                 'download_date': str(Path(archive_path).stat().st_mtime),
                 'size': Path(archive_path).stat().st_size,
-                'description': 'Open-source replication of the WebText dataset used to train GPT-2'
+                'description': 'WikiText-103 dataset containing Wikipedia articles'
             }
             
             with open(self.processed_dir / 'dataset_info.json', 'w') as f:
