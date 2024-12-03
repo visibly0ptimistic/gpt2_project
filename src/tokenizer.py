@@ -90,13 +90,15 @@ class BPETokenizer:
                 new_vocab[new_word] = freq
             self.vocab = new_vocab
 
-    def encode(self, text: str, max_length: Optional[int] = None) -> List[int]:
+    def encode(self, text: str, max_length: Optional[int] = None, padding: bool = False, truncation: bool = False) -> List[int]:
         """
         Encode text into token IDs.
         
         Args:
             text: Input text
             max_length: Maximum sequence length (including special tokens)
+            padding: Whether to pad sequences shorter than max_length
+            truncation: Whether to truncate sequences longer than max_length
             
         Returns:
             List of token IDs
@@ -125,13 +127,13 @@ class BPETokenizer:
         
         # Handle sequence length
         if max_length is not None:
-            if len(token_ids) > max_length:
+            if len(token_ids) > max_length and truncation:
                 # Truncate, keeping SOS and EOS
                 token_ids = token_ids[:max_length-1] + [self.special_tokens['<eos>']]
-            else:
+            elif len(token_ids) < max_length and padding:
                 # Pad to max_length
                 token_ids.extend([self.special_tokens['<pad>']] * 
-                               (max_length - len(token_ids)))
+                            (max_length - len(token_ids)))
         
         return token_ids
 
