@@ -13,7 +13,7 @@ class PathEncoder(json.JSONEncoder):
 
 @dataclass
 class PathConfig:
-    """Enhanced configuration for project paths."""
+    """Enhanced configuration for project paths with immutability."""
     project_root: Path
     data_dir: Optional[Path] = None
     checkpoints_dir: Optional[Path] = None
@@ -26,6 +26,7 @@ class PathConfig:
     tokenizer_dir: Optional[Path] = None
     vocab_file: Optional[Path] = None
     merges_file: Optional[Path] = None
+    _initialized: bool = False
 
     def __post_init__(self):
         """Initialize and create all necessary directories."""
@@ -51,6 +52,15 @@ class PathConfig:
         self.tokenizer_dir = self.tokenizer_dir or self.data_dir / "tokenizer"
         self.vocab_file = self.vocab_file or self.tokenizer_dir / "vocab.json"
         self.merges_file = self.merges_file or self.tokenizer_dir / "merges.txt"
+        
+        # Mark as initialized
+        self._initialized = True
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Override setattr to prevent modification after initialization."""
+        if hasattr(self, '_initialized') and self._initialized and name != '_initialized':
+            raise AttributeError(f"Cannot modify {name} after initialization")
+        super().__setattr__(name, value)
 
 @dataclass
 class ModelConfig:
