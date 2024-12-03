@@ -124,6 +124,7 @@ class TrainingConfig:
     logging_steps: int = 100
     save_total_limit: int = 5
     plot_training_progress: bool = True
+    use_wandb: bool = True
     wandb_project: Optional[str] = "gpt2-training"
     wandb_entity: Optional[str] = None
     device: str = field(default_factory=lambda: "cuda" if torch.cuda.is_available() else "cpu")
