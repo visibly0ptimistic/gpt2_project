@@ -186,7 +186,9 @@ class ProjectConfig:
 
     @paths.setter
     def paths(self, value: PathConfig) -> None:
-        raise AttributeError("Cannot modify paths after initialization")
+        if hasattr(self, '_paths'):
+            raise AttributeError("Cannot modify paths after initialization")
+        self._paths = value
 
     @property
     def model(self) -> ModelConfig:
@@ -263,9 +265,14 @@ class ProjectConfig:
         with open(path, 'r') as f:
             config_dict = json.load(f)
         
-        # Convert path strings back to Path objects
-        paths_dict = {k: Path(v) if isinstance(v, str) else v 
-                     for k, v in config_dict['paths'].items()}
+        # Convert path strings to Path objects recursively
+        paths_dict = config_dict['paths']
+        for key, value in paths_dict.items():
+            if isinstance(value, str):
+                paths_dict[key] = Path(value)
+            elif isinstance(value, dict):  # Handle datasets dictionary
+                paths_dict[key] = {k: Path(v) if isinstance(v, str) else v 
+                                for k, v in value.items()}
         
         return cls(
             paths=PathConfig(**paths_dict),

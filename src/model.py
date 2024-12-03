@@ -310,8 +310,8 @@ class GPT2(nn.Module):
         # Initialize model
         model = cls(config)
         
-        # Load weights
+        # Load weights with security flag
         model_path = model_dir / 'pytorch_model.bin'
-        model.load_state_dict(torch.load(model_path))
+        model.load_state_dict(torch.load(model_path, weights_only=True))
         
         return model
