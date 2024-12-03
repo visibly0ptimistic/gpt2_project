@@ -3,6 +3,7 @@ import json
 from collections import Counter, defaultdict
 from typing import List, Dict, Tuple, Optional
 from pathlib import Path
+from tqdm import tqdm
 
 class BPETokenizer:
     def __init__(self, vocab_size: int = 5000):
@@ -31,50 +32,106 @@ class BPETokenizer:
         return self.token2id[token]
 
     def build_vocab(self, corpus: str) -> None:
-        words = [' '.join(word) + ' </w>' for word in corpus.split()]
+        # Initial character-level tokenization with progress bar
+        print("Building initial vocabulary...")
+        words = []
+        for word in tqdm(corpus.split(), desc="Tokenizing words"):
+            chars = list(word)
+            # Add characters to vocabulary
+            for c in chars:
+                self._add_token(c)
+            words.append(' '.join(chars) + ' </w>')
+        
         self.vocab = Counter(words)
-
+        
+        # Calculate maximum merges needed
+        max_merges = min(
+            self.vocab_size - self.next_token_id,  # Available vocab space
+            sum(len(word.split()) - 1 for word in self.vocab)  # Maximum possible merges
+        )
+        
+        print(f"Learning {max_merges} BPE merges...")
+        # Perform merges with progress bar
+        pbar = tqdm(total=max_merges, desc="Learning BPE merges")
         while self.next_token_id < self.vocab_size:
+            # Find most frequent pair
             pairs = defaultdict(int)
-            
             for word, freq in self.vocab.items():
                 symbols = word.split()
                 for i in range(len(symbols) - 1):
-                    pairs[(symbols[i], symbols[i + 1])] += freq
-
+                    pairs[symbols[i], symbols[i + 1]] += freq
+            
             if not pairs:
                 break
-
-            best_pair = max(pairs, key=pairs.get)
+                
+            best_pair = max(pairs.items(), key=lambda x: x[1])[0]
             merged_token = ''.join(best_pair)
+            
+            # Add to vocabulary
             self._add_token(merged_token)
             self.merges.append(best_pair)
-
+            
+            # Update vocabulary with merged tokens
             new_vocab = {}
             for word, freq in self.vocab.items():
-                pattern = re.escape(best_pair[0]) + r'\s+' + re.escape(best_pair[1])
-                new_word = re.sub(pattern, merged_token, word)
-                new_vocab[new_word] = freq
+                symbols = word.split()
+                i = 0
+                new_symbols = []
+                while i < len(symbols):
+                    if i < len(symbols) - 1 and symbols[i] == best_pair[0] and symbols[i + 1] == best_pair[1]:
+                        new_symbols.append(merged_token)
+                        i += 2
+                    else:
+                        new_symbols.append(symbols[i])
+                        i += 1
+                new_vocab[' '.join(new_symbols)] = freq
+                
             self.vocab = new_vocab
+            pbar.update(1)
+            
+        pbar.close()
 
     def encode(self, text: str, max_length: Optional[int] = None, padding: bool = False, truncation: bool = False) -> List[int]:
+        # Start with special token
         tokens = ['<sos>']
         
-        words = text.split()
-        for word in words:
-            word = ' '.join(word) + ' </w>'
+        # Process each word
+        for word in text.split():
+            # Start with characters
+            current = list(word)
             
-            for merge in self.merges:
-                pattern = re.escape(merge[0]) + r'\s+' + re.escape(merge[1])
-                word = re.sub(pattern, ''.join(merge), word)
+            # Apply merges iteratively
+            while True:
+                # Try to apply each merge rule
+                merged = False
+                for old_pair in self.merges:
+                    if merged:
+                        break
+                    
+                    combined = ''.join(old_pair)
+                    i = 0
+                    while i < len(current) - 1:
+                        if current[i] == old_pair[0] and current[i + 1] == old_pair[1]:
+                            current[i:i + 2] = [combined]
+                            merged = True
+                        else:
+                            i += 1
+                            
+                if not merged:
+                    break
             
-            tokens.extend(word.split())
-
+            # Add end of word token
+            current.append('</w>')
+            tokens.extend(current)
+        
+        # Add end of sequence token
         tokens.append('<eos>')
         
+        # Convert to ids
         token_ids = [self.token2id.get(token, self.special_tokens['<unk>']) 
                     for token in tokens]
         
+        # Handle length constraints
         if max_length is not None:
             if len(token_ids) > max_length and truncation:
                 token_ids = token_ids[:max_length-1] + [self.special_tokens['<eos>']]
@@ -94,8 +151,7 @@ class BPETokenizer:
             if token in self.special_tokens:
                 continue
                 
-            if token.endswith('</w>'):
-                current_word.append(token[:-4])
+            if token == '</w>':
                 tokens.append(''.join(current_word))
                 current_word = []
             else:
@@ -104,10 +160,7 @@ class BPETokenizer:
         if current_word:
             tokens.append(''.join(current_word))
         
-        text = ' '.join(tokens)
-        text = re.sub(r'\s+', ' ', text)
-        
-        return text.strip()
+        return ' '.join(tokens).strip()
 
     def save(self, directory: str) -> None:
         directory = Path(directory)
