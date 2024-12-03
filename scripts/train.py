@@ -174,16 +174,31 @@ class Trainer:
         
         return optimizer
 
+    def _convert_paths_to_str(self, obj):
+        """Convert all Path objects to strings in a config object."""
+        if isinstance(obj, dict):
+            return {k: self._convert_paths_to_str(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._convert_paths_to_str(v) for v in obj]
+        elif isinstance(obj, Path):
+            return str(obj)
+        else:
+            return obj
+
     def train(self):
         """Main training loop."""
         logger.info("Starting training...")
         
         # Initialize wandb if enabled
         if self.config.training.use_wandb:
+            # Convert config to JSON serializable format
+            config_dict = vars(self.config)
+            wandb_config = self._convert_paths_to_str(config_dict)
+            
             wandb.init(
                 project=self.config.training.wandb_project,
                 entity=self.config.training.wandb_entity,
-                config=self.config.__dict__
+                config=wandb_config
             )
         
         try:
