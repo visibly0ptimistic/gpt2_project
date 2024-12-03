@@ -30,30 +30,38 @@ class PathConfig:
 
     def __post_init__(self):
         """Initialize and create all necessary directories."""
-        # Set default paths relative to project_root if not provided
-        self.data_dir = self.data_dir or self.project_root / "data"
-        self.checkpoints_dir = self.checkpoints_dir or self.project_root / "checkpoints"
-        self.logs_dir = self.logs_dir or self.project_root / "logs"
+        # Temporarily store initialization state
+        was_initialized = self._initialized
+        self._initialized = False
         
-        # Set dataset paths
-        self.datasets = self.datasets or {
-            'openwebtext': self.data_dir / "openwebtext",
-            'books': self.data_dir / "books",
-            'custom': self.data_dir / "custom"
-        }
-        
-        # Set processed data paths
-        self.processed_dir = self.processed_dir or self.data_dir / "processed"
-        self.train_dataset_path = self.train_dataset_path or self.processed_dir / "train.pt"
-        self.val_dataset_path = self.val_dataset_path or self.processed_dir / "val.pt"
-        self.test_dataset_path = self.test_dataset_path or self.processed_dir / "test.pt"
-        
-        # Set tokenizer paths
-        self.tokenizer_dir = self.tokenizer_dir or self.data_dir / "tokenizer"
-        self.vocab_file = self.vocab_file or self.tokenizer_dir / "vocab.json"
-        self.merges_file = self.merges_file or self.tokenizer_dir / "merges.txt"
-        
-        # Mark as initialized
+        try:
+            # Set default paths relative to project_root if not provided
+            self.data_dir = self.data_dir or self.project_root / "data"
+            self.checkpoints_dir = self.checkpoints_dir or self.project_root / "checkpoints"
+            self.logs_dir = self.logs_dir or self.project_root / "logs"
+            
+            # Set dataset paths
+            self.datasets = self.datasets or {
+                'openwebtext': self.data_dir / "openwebtext",
+                'books': self.data_dir / "books",
+                'custom': self.data_dir / "custom"
+            }
+            
+            # Set processed data paths
+            self.processed_dir = self.processed_dir or self.data_dir / "processed"
+            self.train_dataset_path = self.train_dataset_path or self.processed_dir / "train.pt"
+            self.val_dataset_path = self.val_dataset_path or self.processed_dir / "val.pt"
+            self.test_dataset_path = self.test_dataset_path or self.processed_dir / "test.pt"
+            
+            # Set tokenizer paths
+            self.tokenizer_dir = self.tokenizer_dir or self.data_dir / "tokenizer"
+            self.vocab_file = self.vocab_file or self.tokenizer_dir / "vocab.json"
+            self.merges_file = self.merges_file or self.tokenizer_dir / "merges.txt"
+        finally:
+            # Restore initialization state
+            self._initialized = was_initialized
+            
+        # Now mark as initialized
         self._initialized = True
 
     def __setattr__(self, name: str, value: Any) -> None:
