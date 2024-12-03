@@ -86,7 +86,7 @@ class BPETokenizer:
             # Apply merge to vocabulary
             new_vocab = {}
             for word, freq in self.vocab.items():
-                new_word = re.sub(r' '.join(best_pair), ''.join(best_pair), word)
+                new_word = word.replace(f"{best_pair[0]} {best_pair[1]}", merged_token)
                 new_vocab[new_word] = freq
             self.vocab = new_vocab
 
