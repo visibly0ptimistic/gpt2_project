@@ -23,6 +23,9 @@ class BPETokenizer:
         self.token2id.update(self.special_tokens)
         self.id2token = {v: k for k, v in self.token2id.items()}
         self.next_token_id = len(self.special_tokens)
+        
+        # Cache for encode method
+        self._encode_cache = {}
 
     def _add_token(self, token: str) -> int:
         if token not in self.token2id:
@@ -90,46 +93,46 @@ class BPETokenizer:
             pbar.update(1)
             
         pbar.close()
+        # Clear cache after building vocabulary
+        self._encode_cache = {}
+
+    def _tokenize_word(self, word: str) -> List[str]:
+        """Helper method to tokenize a single word using learned BPE merges."""
+        if word in self._encode_cache:
+            return self._encode_cache[word]
+        
+        # Start with characters
+        tokens = list(word)
+        
+        # Apply merges iteratively
+        for pair in self.merges:
+            merged_token = ''.join(pair)
+            i = 0
+            while i < len(tokens) - 1:
+                if tokens[i] == pair[0] and tokens[i + 1] == pair[1]:
+                    tokens[i:i + 2] = [merged_token]
+                else:
+                    i += 1
+        
+        # Cache the result
+        self._encode_cache[word] = tokens
+        return tokens
 
     def encode(self, text: str, max_length: Optional[int] = None, padding: bool = False, truncation: bool = False) -> List[int]:
-        # Start with special token
-        tokens = ['<sos>']
+        # Start with special tokens
+        token_ids = [self.special_tokens['<sos>']]
         
         # Process each word
         for word in text.split():
-            # Start with characters
-            current = list(word)
-            
-            # Apply merges iteratively
-            while True:
-                # Try to apply each merge rule
-                merged = False
-                for old_pair in self.merges:
-                    if merged:
-                        break
-                    
-                    combined = ''.join(old_pair)
-                    i = 0
-                    while i < len(current) - 1:
-                        if current[i] == old_pair[0] and current[i + 1] == old_pair[1]:
-                            current[i:i + 2] = [combined]
-                            merged = True
-                        else:
-                            i += 1
-                            
-                if not merged:
-                    break
-            
+            # Tokenize word
+            tokens = self._tokenize_word(word)
+            # Convert tokens to ids
+            token_ids.extend(self.token2id.get(token, self.special_tokens['<unk>']) for token in tokens)
             # Add end of word token
-            current.append('</w>')
-            tokens.extend(current)
+            token_ids.append(self.token2id.get('</w>', self.special_tokens['<unk>']))
         
         # Add end of sequence token
-        tokens.append('<eos>')
-        
-        # Convert to ids
-        token_ids = [self.token2id.get(token, self.special_tokens['<unk>']) 
-                    for token in tokens]
+        token_ids.append(self.special_tokens['<eos>'])
         
         # Handle length constraints
         if max_length is not None:
@@ -152,12 +155,13 @@ class BPETokenizer:
                 continue
                 
             if token == '</w>':
-                tokens.append(''.join(current_word))
-                current_word = []
+                if current_word:  # Only append if we have collected some tokens
+                    tokens.append(''.join(current_word))
+                    current_word = []
             else:
                 current_word.append(token)
         
-        if current_word:
+        if current_word:  # Handle any remaining tokens
             tokens.append(''.join(current_word))
         
         return ' '.join(tokens).strip()
@@ -165,6 +169,10 @@ class BPETokenizer:
     def save(self, directory: str) -> None:
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
+        
+        # Don't save the cache
+        cache = self._encode_cache
+        self._encode_cache = {}
         
         vocab_file = directory / 'vocab.json'
         with vocab_file.open('w', encoding='utf-8') as f:
@@ -178,6 +186,9 @@ class BPETokenizer:
         with merges_file.open('w', encoding='utf-8') as f:
             for pair in self.merges:
                 f.write(f'{pair[0]} {pair[1]}\n')
+        
+        # Restore the cache
+        self._encode_cache = cache
 
     def load(self, directory: str) -> None:
         directory = Path(directory)
@@ -197,3 +208,6 @@ class BPETokenizer:
             for line in f:
                 token1, token2 = line.strip().split()
                 self.merges.append((token1, token2))
+        
+        # Initialize empty cache
+        self._encode_cache = {}
