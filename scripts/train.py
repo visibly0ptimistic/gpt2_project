@@ -192,8 +192,7 @@ class Trainer:
         # Initialize wandb if enabled
         if self.config.training.use_wandb:
             # Convert config to JSON serializable format
-            config_dict = vars(self.config)
-            wandb_config = self._convert_paths_to_str(config_dict)
+            wandb_config = self._prepare_wandb_config(self.config)
             
             wandb.init(
                 project=self.config.training.wandb_project,
